@@ -4,6 +4,8 @@ package mgoauth
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/gob"
+	"fmt"
 	"github.com/gin-gonic/contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -14,48 +16,61 @@ import (
 	"net/http"
 )
 
+const (
+	ADMIN   = "admin"
+	DEFAULT = "default"
+)
+
 /*
 * User represents a login entity
 * can be encoded to json or decoded from json
  */
 type User struct {
-	Id       string `json:"_id,omitempty" bson:"_id,omitempty"`
-	Password string
-	Alias    string
-	Roles    []string
+	Id       string  `json:"_id,omitempty" bson:"_id,omitempty"`
+	Password string  `json:"password"`
+	Alias    string  `json:"alias"`
+	Roles    roleMap `json:"roles"`
 }
 
-func MongoAuth() gin.HandlerFunc {
+type roleMap map[string]bool
+
+func init() {
+	gob.Register(&User{})
+}
+
+// middleware for role authentication.
+// only users that are logged in and have the roles passed as arguments are granted access
+func RequireRole(role string) gin.HandlerFunc {
+	// var rm roleMap
+
+	// for _, role := range roles {
+	//	 rm[role] = true
+	// }
+	log.Println("RequireRole init")
 	return func(c *gin.Context) {
-		session := sessions.Default(c)
-		if userId := session.Get("UserId"); userId != nil {
-			db := c.MustGet("db").(*mgo.Database)
-			user := &User{}
-			err := db.C("users").Find(bson.M{"_id": userId}).One(&user)
-			if err != nil {
-				c.Set("user", nil)
-			} else {
-				c.Set("user", user)
-			}
-		}
-		c.Next()
-	}
-}
+		log.Println("RequireRole middleware...")
+		user := &User{}
 
-/*
-* Login validates the credentials by retrieving the passphrase for the given
-* user and comparing it to the given one
- */
-func doLogin(username, password string, db *mgo.Database) (user *User, err error) {
-	if username != "" && password != "" {
-		user = &User{}
-		//log.Printf("PW: %s, USER: %s", password, username)
-		err := db.C("users").Find(bson.M{"_id": username}).One(user)
-		if !(err == mgo.ErrNotFound) && secureCompare(password, user.Password) {
-			return user, nil
+		session := sessions.Default(c)
+		log.Println(session)
+
+		if u := session.Get("user"); u != nil {
+			user = u.(*User)
+			log.Println(user)
+			if !user.Roles[role] {
+				c.String(http.StatusUnauthorized, "No permission!")
+				c.Abort()
+			} else {
+				c.Next()
+			}
+		} else {
+			//c.Redirect(http.StatusSeeOther, "/auth/view/login")
+			c.String(http.StatusUnauthorized, "User not logged in!")
+
+			c.Abort()
 		}
 	}
-	return nil, err
+
 }
 
 // secureCompare performs a constant time compare of two strings to limit timing attacks.
@@ -66,6 +81,58 @@ func secureCompare(given string, actual string) bool {
 	return subtle.ConstantTimeCompare(givenSha[:], actualSha[:]) == 1
 }
 
+/*
+* Login validates the credentials by retrieving the passphrase for the given
+* user and comparing it to the given one
+* if login succeeds the user model stored in the database is returned
+ */
+func doLogin(actualUser *User, db *mgo.Database) (*User, error) {
+	var err error = nil
+	//log.Printf("actualUser: %v", actualUser)
+	if actualUser.Id != "" && actualUser.Password != "" {
+		expectedUser := &User{}
+		err = db.C("users").Find(bson.M{"_id": actualUser.Id}).One(expectedUser)
+		if err == nil && secureCompare(actualUser.Password, expectedUser.Password) {
+			return expectedUser, nil
+		} else {
+			err = fmt.Errorf("User: %v, %s", actualUser, err)
+		}
+	} else {
+		err = fmt.Errorf("No empty user id or password accepted!")
+	}
+
+	return nil, err
+}
+
+func PostLogin(c *gin.Context) {
+	user := &User{}
+
+	// be aware that any information sent by the client could be parsed
+	// e.g information about roles. Therefore it is important to override
+	// the user model
+	c.BindWith(user, binding.JSON)
+	log.Println(user)
+
+	db := ginutil.GetDB(c)
+	session := sessions.Default(c)
+	user, err := doLogin(user, db)
+	//	log.Printf("USER: %v", user)
+	//	log.Printf("ERROR: %v", err)
+	//	log.Printf("DB: %v", db)
+	if err != nil {
+		user = nil
+	} else {
+		// if user successfully logged in, attach user model to session
+		session.Set("user", user)
+		err = session.Save()
+	}
+
+	if err != nil {
+		log.Println(err)
+	}
+	log.Println(session)
+}
+
 //auth required here
 func GetLogin(c *gin.Context) {
 	user := &User{}
@@ -74,31 +141,14 @@ func GetLogin(c *gin.Context) {
 	if u := session.Get("user"); u != nil {
 		user = u.(*User)
 		c.JSON(http.StatusOK, user)
-		log.Println(user)
 	} else {
 		c.String(http.StatusUnauthorized, "User not logged in!")
 	}
 
 }
 
-func PostLogin(c *gin.Context) {
-	user := &User{}
-	c.BindWith(user, binding.JSON)
-	log.Println(user)
-	db := ginutil.GetDB(c)
-	session := sessions.Default(c)
-	user, err := doLogin(user.Id, user.Password, db)
-	if err != nil {
-		log.Println(err)
-	} else {
-		session.Set("user", user)
-	}
-	session.Save()
-	log.Println(session)
-}
-
 func PostRegister(c *gin.Context) {
-	user := User{}
+	user := &User{}
 	c.BindWith(user, binding.JSON)
 	log.Println(user)
 	db := ginutil.GetDB(c)
