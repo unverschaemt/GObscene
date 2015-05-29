@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/unverschaemt/go-server/ginutil"
+	"github.com/unverschaemt/gobscene/ginutil"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
@@ -26,13 +26,33 @@ const (
 * can be encoded to json or decoded from json
  */
 type User struct {
-	Id       string  `json:"_id,omitempty" bson:"_id,omitempty"`
-	Password string  `json:"password"`
-	Alias    string  `json:"alias"`
-	Roles    roleMap `json:"roles"`
+	Id       string   `json:"_id,omitempty" bson:"_id,omitempty"`
+	Password string          `json:"password"`
+	Mail     string          `json: "mail"`
+	Alias    string          `json:"alias"`
+	Roles    map[string]bool `json:"roles"`
 }
 
-type roleMap map[string]bool
+func GetUserId(c *gin.Context) (id string) {
+	session := sessions.Default(c)
+	if u := session.Get("user"); u != nil {
+		user := u.(*User)
+		id = user.Id
+	} else {
+		id = ""
+	}
+	return
+}
+
+func NotLoggedIn(c *gin.Context) {
+	c.String(http.StatusUnauthorized, "User not logged in!")
+	c.Abort()
+}
+
+func NoPermission(c *gin.Context) {
+	c.String(http.StatusUnauthorized, "No permission!")
+	c.Abort()
+}
 
 func init() {
 	gob.Register(&User{})
@@ -58,16 +78,13 @@ func RequireRole(role string) gin.HandlerFunc {
 			user = u.(*User)
 			log.Println(user)
 			if !user.Roles[role] {
-				c.String(http.StatusUnauthorized, "No permission!")
-				c.Abort()
+				NoPermission(c)
 			} else {
 				c.Next()
 			}
 		} else {
 			//c.Redirect(http.StatusSeeOther, "/auth/view/login")
-			c.String(http.StatusUnauthorized, "User not logged in!")
-
-			c.Abort()
+			NotLoggedIn(c)
 		}
 	}
 
@@ -149,17 +166,18 @@ func GetLogin(c *gin.Context) {
 
 func PostRegister(c *gin.Context) {
 	user := &User{}
-	c.BindWith(user, binding.JSON)
-	log.Println(user)
-	db := ginutil.GetDB(c)
-	if db.C("users").FindId(user.Id).Limit(1).One(bson.M{}) == mgo.ErrNotFound {
+	if c.BindWith(user, binding.JSON) {
+		log.Println(user)
+		db := ginutil.GetDB(c)
+		if db.C("users").FindId(user.Id).Limit(1).One(bson.M{}) == mgo.ErrNotFound {
 		err := db.C("users").Insert(user)
 		if err != nil {
 			log.Panicln(err)
 		}
-	} else {
-		c.String(http.StatusConflict, "UserID already in use.")
-		return
+				} else {
+				c.String(http.StatusConflict, "UserID already in use.")
+				return
+			}
+		c.String(http.StatusOK, "Registered.")
 	}
-	c.String(http.StatusOK, "Registered.")
 }
