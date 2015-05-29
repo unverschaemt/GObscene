@@ -17,11 +17,11 @@ type crudModel struct {
 
 func Crud(r *gin.RouterGroup, model interface{}, collectionName string) {
 	modelType := reflect.TypeOf(model)
-	log.Printf("autocrud: model type: %v", modelType)
-	modelPt := reflect.New(modelType)
-	log.Printf("autocrud: model has type: %v", modelPt)
-	models := reflect.New(reflect.SliceOf(modelType))
-	log.Printf("autocrud: model slice: %v", models)
+	/*	log.Printf("autocrud: model type: %v", modelType)
+		modelPt := reflect.New(modelType)
+		log.Printf("autocrud: model has type: %v", modelPt)
+		models := reflect.New(reflect.SliceOf(modelType))
+		log.Printf("autocrud: model slice: %v", models)*/
 	if modelType.Kind() == reflect.Struct {
 		cm := crudModel{collectionName, modelType}
 		{
