@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
-	"github.com/gin-gonic/contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/unverschaemt/gobscene/ginutil"
@@ -126,11 +125,7 @@ func (a *Authenticator) PostLogin(c *gin.Context) {
 }
 
 func (a *Authenticator) GetLogin(c *gin.Context) {
-	user := &User{}
-
-	session := sessions.Default(c)
-	if u := session.Get("user"); u != nil {
-		user = u.(*User)
+	if user := a.User(c); user != nil {
 		c.JSON(http.StatusOK, user)
 	} else {
 		c.String(http.StatusUnauthorized, "User not logged in!")
