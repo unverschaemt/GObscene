@@ -100,7 +100,7 @@ func doLogin(actualUser *User, db *mgo.Database) (*User, error) {
 		if err == nil && secureCompare(actualUser.Password, expectedUser.Password) {
 			return expectedUser, nil
 		} else {
-			err = fmt.Errorf("mgoauth: %v, %s", actualUser, err)
+			err = fmt.Errorf("mgoauth: Login failed %v", *actualUser)
 		}
 	} else {
 		err = fmt.Errorf("mgoauth: No empty user id or password accepted!")
